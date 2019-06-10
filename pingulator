@@ -8,8 +8,7 @@ from subprocess import PIPE, Popen
 from threading  import Thread
 import curses
 from curses import wrapper
-
-from queue import Queue, Empty
+import socket
 
 warnings.filterwarnings('ignore')
 ME = os.path.basename(sys.argv[0])
@@ -65,13 +64,20 @@ def enqueue_output(out, queue):
         queue.put(line)
         out.close()
 
+def split_ip(ip):
+    """Split a IP address given as string into a 4-tuple of integers."""
+    return tuple(int(part) for part in ip.split('.'))
+
+def sort_ip(item):
+    return split_ip(item[0])
+
 def cursesMain(stdscr):
 
     def db(stdscr,x):
         stdscr.addstr(20,100,x)
         stdscr.refresh()
 
-    p = Popen(['fping','-p','100','-l','-g','192.168.200.0/25'],stdout=PIPE, stderr=PIPE)
+    p = Popen(['fping','--rdns','-p','100','-l','-g','192.168.200.0/24'],stdout=PIPE, stderr=PIPE)
     selStdout = select.poll()
     selStderr = select.poll()
     selStdout.register(p.stdout,select.POLLIN)
@@ -126,21 +132,20 @@ def cursesMain(stdscr):
             lctr = 1
             colCtr = 0
             colWidth = int(curses.COLS / displayCols)  # Column width
-            for host in sorted(results):
-                #print("{}:\t{}".format(host,results[host]))
+            for host in sorted(results.keys()):
                 myLineCol = colCtr * colWidth
                 thisResult = results[host]
+                
                 if state[host] == "up":
-                    stdscr.addstr(lctr,myLineCol+hostLabelLength+1,state[host],curses.color_pair(colorPairOk))
+                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
                     if lastResults.get(host,"") == thisResult:
-                        # no update
+                        # no update, maybe down
                         state[host] = "????" # Not sure... its a warning
                 if state[host] == "????":
-                    stdscr.addstr(lctr,myLineCol+hostLabelLength+1,state[host], curses.color_pair(colorPairWarning))
+                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
                 if state[host] == "DOWN":
-                    stdscr.addstr(lctr,myLineCol+hostLabelLength+1,state[host], curses.color_pair(colorPairError))
-                stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength))
-                stdscr.addstr(lctr,myLineCol+hostLabelLength+6,results[host])
+                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError))
+                stdscr.addstr(lctr,myLineCol+hostLabelLength+1,results[host].strip()[0:colWidth-(hostLabelLength+2)])
                 lastResults[host]=thisResult
                 lctr+=1
                 if lctr >= curses.LINES:
@@ -149,7 +154,7 @@ def cursesMain(stdscr):
                     if colCtr >= displayCols:
                         displayCols+=1
                         break
-                db(stdscr,"lctr[{}] colCtr[{}] myLineCol[{}] colWidth[{}] {}x{}".format(lctr, colCtr, myLineCol, colWidth, curses.LINES, curses.COLS))
+                #db(stdscr,"lctr[{}] colCtr[{}] myLineCol[{}] colWidth[{}] {}x{}".format(lctr, colCtr, myLineCol, colWidth, curses.LINES, curses.COLS))
                     
             for odd in sorted(oddlines):
                 print("odd:\t{}".format(odd))
