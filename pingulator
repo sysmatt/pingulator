@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+
+
+import os, sys, logging, time, pprint, warnings, argparse, re, configparser, shutil, imaplib, email, email.header, email.utils, string, subprocess, uuid
+import pprint
+import select
+from subprocess import PIPE, Popen
+from threading  import Thread
+import curses
+
+from queue import Queue, Empty
+
+warnings.filterwarnings('ignore')
+ME = os.path.basename(sys.argv[0])
+loggingFormat='%(asctime)s %(filename)s: %(message)s'
+logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format=loggingFormat)
+logger = logging.getLogger(ME)
+start_time = time.time()
+maxLoopCounter=-1
+
+
+stdscr = curses.initscr()
+parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
+parser.add_argument("-v", "--verbose",  help="increase output verbosity", action="store_true")
+parser.add_argument("-d", "--debug",    help="enable debugging output", action="store_true")
+#parser.add_argument("-C", "--clear",    help="clear out pending messages upon startup before processing", action="store_true")
+parser.add_argument("-o", "--oneshot",  help="process account(s) only once then exit", action="store_true")
+parser.add_argument("-4", "--ipv4",     help="Limit name resolution to ipv4 (fping)", action="store_true")
+parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fping)", action="store_true")
+parser.add_argument("-n", "--numloops", help="process account(s) this many times then exit", action="store", type=int)
+parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
+parser.add_argument("-s", "--sleep",    help="Time to sleep in seconds between loops, Accepts decimal.", action="store", type=float, default=0)
+#parser.add_argument("configFile",    help="provide a ini configuration file", action="store")
+args = parser.parse_args()
+
+# Holder of imap connection objects
+
+if args.verbose:
+    logger.setLevel(logging.INFO)
+if args.debug:
+    logger.setLevel(logging.DEBUG)
+if args.oneshot:
+    maxLoopCounter = 1
+    logger.debug("Oneshot mode")
+if args.numloops:
+    maxLoopCounter = int(args.numloops)
+    logger.debug("Limit to [{}] loops".format(maxLoopCounter))
+
+
+def bomb(chunk):
+    logger.error("%s",chunk)
+    sys.exit(1)
+
+
+def enqueue_output(out, queue):
+    for line in iter(out.readline, b''):
+        queue.put(line)
+        out.close()
+
+#ON_POSIX = 'posix' in sys.builtin_module_names
+p = Popen(['fping','-l','10.55.0.1','192.168.200.1','192.168.200.11','192.168.200.17','192.168.200.30','192.168.200.31','192.168.200.99','stenchly.automagically.net'], stdout=PIPE, stderr=PIPE) #, close_fds=ON_POSIX)
+#q = Queue()
+#t = Thread(target=enqueue_output, args=(p.stdout, q))
+#t.daemon = True # thread dies with the program
+#t.start()
+
+selStdout = select.poll()
+selStderr = select.poll()
+
+selStdout.register(p.stdout,select.POLLIN)
+selStderr.register(p.stderr,select.POLLIN)
+
+# ... do other things here
+loopCounter = 0
+lines = []
+results = {}
+state = {}
+stateTime = {}
+oddlines = []
+hostLabelLength = 0
+lastRefresh = time.time()
+while loopCounter != maxLoopCounter:
+    now = time.time()
+    #logger.debug("LOOP ctr[{}] max[{}]".format(loopCounter,maxLoopCounter))
+    if selStdout.poll(1):
+        lines.extend(p.stdout.readline().decode().splitlines())
+    elif selStderr.poll(1):
+        lines.extend(p.stderr.readline().decode().splitlines())
+#    else:
+#        print('.',end='')
+
+    for line in lines:
+        #print("line[{}]".format(line))
+        if re.search('ICMP.*nreachable', line):
+            # Special case for unreachable, last word is host spec
+            m = line.split()
+            host = m[-1]
+            results[host] = line #"ICMP Host Unreachable"
+            state[host] = "DOWN"
+            stateTime[host] = time.time()
+        elif re.search(':',line):
+            # Normal Line
+            (host,message) = line.split(':',2)
+            host=host.strip()
+            message=message.strip()
+            results[host] = message
+            state[host] = "up"
+            stateTime[host] = time.time()
+        else:
+            oddlines.append(line)
+
+    if ( time.time() - lastRefresh ) > 1:
+        lastRefresh = time.time()
+        # display stuff
+        if results.keys():
+            hostLabelLength = len(max(results.keys(),key=len))
+        stdscr.clear()
+        lines.clear()
+        lctr = 1
+        for host in sorted(results):
+            #print("{}:\t{}".format(host,results[host]))
+            stdscr.addstr(lctr,0,host)
+            stdscr.addstr(lctr,hostLabelLength+1,state[host])
+            stdscr.addstr(lctr,hostLabelLength+6,results[host])
+            lctr+=1
+        lctr+=1
+        for odd in sorted(oddlines):
+            print("odd:\t{}".format(odd))
+            stdscr.addstr(lctr,0,"odd: "+odd)
+            lctr+=1
+        stdscr.refresh()
+        
+
+    # read line without blocking
+#    try:  line = q.get_nowait() # or q.get(timeout=.1)
+    #try:  line = q.get(timeout=.1)
+#    except Empty:
+#        pass
+        #print('.', end='')
+#    else: # got line
+#        # ... do something with line
+    time.sleep(args.sleep)
+    loopCounter += 1
+
+
+
+curses.nocbreak(); stdscr.keypad(0); curses.echo(); curses.endwin()
+
