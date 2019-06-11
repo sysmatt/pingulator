@@ -1,2 +1,2 @@
 # pingulator
-It pings shit
+It pings stuff
