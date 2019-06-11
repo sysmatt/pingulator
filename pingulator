@@ -32,7 +32,7 @@ parser.add_argument("-g", "--generate", help="Generate target list using supplie
 parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100 (fping)", action="store", type=int, default=100)
 parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
 parser.add_argument("-H", "--hosts",    help="Specify hosts file for --wild matching, default=/etc/hosts", action="store", type=str, default="/etc/hosts")
-parser.add_argument("-F", "--hostsfield",    help="Specify hosts file field column for --wild matching, default=1 (zero indexed)", action="store", type=int, default=1)
+parser.add_argument("-F", "--hostsfield",    help="Specify hosts file field column for --wild matching, default=1 (zero indexed, whitespace delim)", action="store", type=int, default=1)
 parser.add_argument("-W", "--wild",     help="Derive targets from hosts file by wildcard patterns", action="append", type=str)
 parser.add_argument("fping_args", help="Remainder of arguments passed to fping", nargs='*')
 args = parser.parse_args()
