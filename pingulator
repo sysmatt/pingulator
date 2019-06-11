@@ -19,6 +19,17 @@ start_time = time.time()
 maxLoopCounter=-1
 
 
+parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
+parser.add_argument("-v", "--verbose",  help="increase output verbosity", action="store_true")
+parser.add_argument("-D", "--debug",    help="enable debugging output", action="store_true")
+parser.add_argument("-4", "--ipv4",     help="Limit name resolution to ipv4 (fping)", action="append_const", dest='fpingOptions', const='--ipv4')
+parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fping)", action="append_const", dest='fpingOptions', const='--ipv6')
+parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of return ping packet. (fping)", action="append_const", dest='fpingOptions', const='--rdns')
+parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
+parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100 (fping)", action="store", type=int, default=100)
+parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
+args = parser.parse_args()
+
 stdscr = curses.initscr()
 curses.start_color()
 colorPairWarning = 1
@@ -27,32 +38,11 @@ colorPairOk = 3
 curses.init_pair(colorPairWarning, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Amber warning
 curses.init_pair(colorPairError,   curses.COLOR_RED,    curses.COLOR_BLACK)  # Red is bad
 curses.init_pair(colorPairOk,      curses.COLOR_GREEN,  curses.COLOR_BLACK)  # Green is good
-parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
-parser.add_argument("-v", "--verbose",  help="increase output verbosity", action="store_true")
-parser.add_argument("-d", "--debug",    help="enable debugging output", action="store_true")
-#parser.add_argument("-C", "--clear",   help="clear out pending messages upon startup before processing", action="store_true")
-parser.add_argument("-o", "--oneshot",  help="process account(s) only once then exit", action="store_true")
-parser.add_argument("-4", "--ipv4",     help="Limit name resolution to ipv4 (fping)", action="store_true")
-parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fping)", action="store_true")
-parser.add_argument("-n", "--numloops", help="process account(s) this many times then exit", action="store", type=int)
-#parser.add_argument("-c", "--cols",    help="Number of columns to display", action="store", type=int, default=1)
-parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
-parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
-#parser.add_argument("configFile",    help="provide a ini configuration file", action="store")
-args = parser.parse_args()
-
-# Holder of imap connection objects
 
 if args.verbose:
     logger.setLevel(logging.INFO)
 if args.debug:
     logger.setLevel(logging.DEBUG)
-if args.oneshot:
-    maxLoopCounter = 1
-    logger.debug("Oneshot mode")
-if args.numloops:
-    maxLoopCounter = int(args.numloops)
-    logger.debug("Limit to [{}] loops".format(maxLoopCounter))
 
 def bomb(chunk):
     logger.error("\n\n\n%s\n\n\n",chunk)
@@ -68,16 +58,31 @@ def split_ip(ip):
     """Split a IP address given as string into a 4-tuple of integers."""
     return tuple(int(part) for part in ip.split('.'))
 
-def sort_ip(item):
-    return split_ip(item[0])
-
+def sort_ip(x):
+    if re.match("^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$",x):
+        # Im and IP
+        out=[]
+        for o in x.split('.'):
+            out.append("{:03d}".format(int(o)))
+        return(".".join(out))
+    else:
+        return x
 def cursesMain(stdscr):
 
-    def db(stdscr,x):
-        stdscr.addstr(20,100,x)
-        stdscr.refresh()
+    fpingCommand=[]
+    fpingCommand.extend(['fping','--loop'])
+    if args.fpingOptions: 
+        fpingCommand.extend(args.fpingOptions)
+    if args.generate:
+        fpingCommand.extend(['--generate',args.generate])
+    if args.period:
+        fpingCommand.extend(['--period',str(args.period)])
 
-    p = Popen(['fping','--rdns','-p','100','-l','-g','192.168.200.0/24'],stdout=PIPE, stderr=PIPE)
+    stdscr.addstr(0,0,"Command: {}".format(" ".join(fpingCommand)))
+    stdscr.refresh()
+    time.sleep(1)
+    p = Popen(fpingCommand,stdout=PIPE, stderr=PIPE)
+    #p = Popen(['fping','--rdns','-p','100','-l','-g','192.168.200.0/24'],stdout=PIPE, stderr=PIPE)
     selStdout = select.poll()
     selStderr = select.poll()
     selStdout.register(p.stdout,select.POLLIN)
@@ -129,10 +134,10 @@ def cursesMain(stdscr):
                 hostLabelLength = len(max(results.keys(),key=len))
             stdscr.clear()
             lines.clear()
-            lctr = 1
+            lctr = 0
             colCtr = 0
             colWidth = int(curses.COLS / displayCols)  # Column width
-            for host in sorted(results.keys()):
+            for host in sorted(results.keys(),key=sort_ip):
                 myLineCol = colCtr * colWidth
                 thisResult = results[host]
                 
@@ -150,23 +155,24 @@ def cursesMain(stdscr):
                 lctr+=1
                 if lctr >= curses.LINES:
                     colCtr+=1
-                    lctr=1
+                    lctr=0
                     if colCtr >= displayCols:
                         displayCols+=1
                         break
                 #db(stdscr,"lctr[{}] colCtr[{}] myLineCol[{}] colWidth[{}] {}x{}".format(lctr, colCtr, myLineCol, colWidth, curses.LINES, curses.COLS))
                     
-            for odd in sorted(oddlines):
-                print("odd:\t{}".format(odd))
-                stdscr.addstr(lctr,myLineCol,"odd: "+odd)
-                lctr+=1
-                if lctr >= curses.LINES:
-                    colCtr+=1
-                    lctr=1
-                    if colCtr >= displayCols:
-                        displayCols+=1
-                        break
+            #for odd in sorted(oddlines):
+            #    print("odd:\t{}".format(odd))
+            #    stdscr.addstr(lctr,myLineCol,"odd: "+odd)
+            #    lctr+=1
+            #    if lctr >= curses.LINES:
+            #        colCtr+=1
+            #        lctr=1
+            #        if colCtr >= displayCols:
+            #            displayCols+=1
+            #            break
             stdscr.refresh()
+            time.sleep(.1)
             
 
         # read line without blocking
