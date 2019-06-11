@@ -91,122 +91,123 @@ def cursesMain(stdscr):
     stdscr.addstr(0,0,"Command: {}".format(" ".join(fpingCommand)))
     stdscr.refresh()
     time.sleep(1)
-    p = Popen(fpingCommand,stdout=PIPE, stderr=PIPE)
-    #p = Popen(['fping','--rdns','-p','100','-l','-g','192.168.200.0/24'],stdout=PIPE, stderr=PIPE)
-    selStdout = select.poll()
-    selStderr = select.poll()
-    selStdout.register(p.stdout,select.POLLIN)
-    selStderr.register(p.stderr,select.POLLIN)
+    with Popen(fpingCommand,stdout=PIPE, stderr=PIPE) as p:
+        selStdout = select.poll()
+        selStderr = select.poll()
+        selStdout.register(p.stdout,select.POLLIN)
+        selStderr.register(p.stderr,select.POLLIN)
 
-    # ... do other things here
-    loopCounter = 0
-    lines = []
-    results = {}
-    lastResults = {}
-    resultsMissCtr = {}
-    state = {}
-    oddlines = []
-    hostLabelLength = 0
-    lastRefresh = time.time()
-    displayCols = 1
-    refreshCtr = 0
+        # ... do other things here
+        loopCounter = 0
+        lines = []
+        results = {}
+        lastResults = {}
+        resultsMissCtr = {}
+        state = {}
+        oddlines = []
+        hostLabelLength = 0
+        lastRefresh = time.time()
+        displayCols = 1
+        refreshCtr = 0
 
-    while loopCounter != maxLoopCounter:
-        now = time.time()
-        #logger.debug("LOOP ctr[{}] max[{}]".format(loopCounter,maxLoopCounter))
-        if selStdout.poll(1):
-            lines.extend(p.stdout.readline().decode().splitlines())
-        elif selStderr.poll(1):
-            lines.extend(p.stderr.readline().decode().splitlines())
+        while loopCounter != maxLoopCounter:
+            if not p.poll == None: 
+                raise Exception("fping died, Command was: {}".format(" ".join(fpingCommand)))
+            now = time.time()
+            #logger.debug("LOOP ctr[{}] max[{}]".format(loopCounter,maxLoopCounter))
+            if selStdout.poll(1):
+                lines.extend(p.stdout.readline().decode().splitlines())
+            elif selStderr.poll(1):
+                lines.extend(p.stderr.readline().decode().splitlines())
 
-        for line in lines:
-            #print("line[{}]".format(line))
-            if re.search('ICMP.*nreachable', line):
-                # Special case for unreachable, last word is host spec
-                m = line.split()
-                host = m[-1]
-                results[host] = " ".join(m[0:3]) # line #"ICMP Host Unreachable"
-                state[host] = "DOWN"
-            elif re.search(':',line):
-                # Normal Line
-                (host,message) = line.split(':',2)
-                host=host.strip()
-                message=message.strip()
-                results[host] = message
-                state[host] = "up"
-            #else:
-            #    oddlines.append(line)
+            for line in lines:
+                #print("line[{}]".format(line))
+                if re.search('ICMP.*nreachable', line):
+                    # Special case for unreachable, last word is host spec
+                    m = line.split()
+                    host = m[-1]
+                    results[host] = " ".join(m[0:3]) # line #"ICMP Host Unreachable"
+                    state[host] = "DOWN"
+                elif re.search(':',line):
+                    # Normal Line
+                    (host,message) = line.split(':',2)
+                    host=host.strip()
+                    message=message.strip()
+                    results[host] = message
+                    state[host] = "up"
+                #else:
+                #    oddlines.append(line)
 
-        if ( time.time() - lastRefresh ) > args.refresh:
-            lastRefresh = time.time()
-            # display stuff
-            if results.keys():
-                hostLabelLength = len(max(results.keys(),key=len))
-            stdscr.clear()
-            lines.clear()
-            refreshCtr+=1
-            lctr = 0
-            colCtr = 0
-            colWidth = int(curses.COLS / displayCols)  # Column width
-            # running indicator
-            stdscr.addstr(0,0,"Run: ")
-            stdscr.addstr(0,5,"{}".format(str(datetime.timedelta(seconds=int(now - start_time)))), 
-                    curses.color_pair(colorPairRefresh[refreshCtr % len(colorPairRefresh)]))
-            stdscr.addstr(0,15,"Ref: ")
-            stdscr.addstr(0,20,"{:03d}".format(refreshCtr),
-                    curses.color_pair(colorPairRefresh[(refreshCtr+1) % len(colorPairRefresh)]))
-            lctr+=1
-
-            for host in sorted(results.keys(),key=sort_ip):
-                myLineCol = colCtr * colWidth
-                thisResult = results[host]
-                
-                stdscr.addstr(lctr,myLineCol+hostLabelLength+1,results[host].strip()[0:colWidth-(hostLabelLength+2)])
-                if lastResults.get(host,"") == thisResult:   # Same data as last loop, count as a miss
-                    resultsMissCtr+=1
-                else:
-                    resultsMissCtr=0 # clear
-                if state[host] == "up":
-                    if resultsMissCtr >= pingMissAmberThreshold:
-                        stdscr.addstr(lctr,myLineCol+hostLabelLength+1,"miss {}, {}".format(resultsMissCtr,results[host].strip())[0:colWidth-(hostLabelLength+2)])
-                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
-                    else:
-                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
-                if state[host] == "DOWN":  # hard down
-                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError))
-                lastResults[host]=thisResult
+            if ( time.time() - lastRefresh ) > args.refresh:
+                lastRefresh = time.time()
+                # display stuff
+                if results.keys():
+                    hostLabelLength = len(max(results.keys(),key=len))
+                stdscr.clear()
+                lines.clear()
+                refreshCtr+=1
+                lctr = 0
+                colCtr = 0
+                colWidth = int(curses.COLS / displayCols)  # Column width
+                # running indicator
+                stdscr.addstr(0,0,"Run: ")
+                stdscr.addstr(0,5,"{}".format(str(datetime.timedelta(seconds=int(now - start_time)))), 
+                        curses.color_pair(colorPairRefresh[refreshCtr % len(colorPairRefresh)]))
+                stdscr.addstr(0,15,"Ref: ")
+                stdscr.addstr(0,20,"{:03d}".format(refreshCtr),
+                        curses.color_pair(colorPairRefresh[(refreshCtr+1) % len(colorPairRefresh)]))
                 lctr+=1
-                if lctr >= curses.LINES:
-                    colCtr+=1
-                    lctr=0
-                    if colCtr >= displayCols:
-                        displayCols+=1
-                        break
-                #db(stdscr,"lctr[{}] colCtr[{}] myLineCol[{}] colWidth[{}] {}x{}".format(lctr, colCtr, myLineCol, colWidth, curses.LINES, curses.COLS))
-                    
-            #for odd in sorted(oddlines):
-            #    print("odd:\t{}".format(odd))
-            #    stdscr.addstr(lctr,myLineCol,"odd: "+odd)
-            #    lctr+=1
-            #    if lctr >= curses.LINES:
-            #        colCtr+=1
-            #        lctr=1
-            #        if colCtr >= displayCols:
-            #            displayCols+=1
-            #            break
-            stdscr.refresh()
-            time.sleep(.1)
-            
 
-        # read line without blocking
-    #    try:  line = q.get_nowait() # or q.get(timeout=.1)
-        #try:  line = q.get(timeout=.1)
-    #    except Empty:
-    #        pass
-            #print('.', end='')
-    #    else: # got line
-    #        # ... do something with line
-        loopCounter += 1
+                for host in sorted(results.keys(),key=sort_ip):
+                    myLineCol = colCtr * colWidth
+                    thisResult = results[host]
+                    
+                    stdscr.addstr(lctr,myLineCol+hostLabelLength+1,results[host].strip()[0:colWidth-(hostLabelLength+2)])
+                    if lastResults.get(host,"") == thisResult:   # Same data as last loop, count as a miss
+                        resultsMissCtr+=1
+                    else:
+                        resultsMissCtr=0 # clear
+                    if state[host] == "up":
+                        if resultsMissCtr >= pingMissAmberThreshold:
+                            stdscr.addstr(lctr,myLineCol+hostLabelLength+1,"miss {}, {}".format(resultsMissCtr,results[host].strip())[0:colWidth-(hostLabelLength+2)])
+                            stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
+                        else:
+                            stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
+                    if state[host] == "DOWN":  # hard down
+                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError))
+                    lastResults[host]=thisResult
+                    lctr+=1
+                    if lctr >= curses.LINES:
+                        colCtr+=1
+                        lctr=0
+                        if colCtr >= displayCols:
+                            displayCols+=1
+                            break
+                    #db(stdscr,"lctr[{}] colCtr[{}] myLineCol[{}] colWidth[{}] {}x{}".format(lctr, colCtr, myLineCol, colWidth, curses.LINES, curses.COLS))
+                        
+                #for odd in sorted(oddlines):
+                #    print("odd:\t{}".format(odd))
+                #    stdscr.addstr(lctr,myLineCol,"odd: "+odd)
+                #    lctr+=1
+                #    if lctr >= curses.LINES:
+                #        colCtr+=1
+                #        lctr=1
+                #        if colCtr >= displayCols:
+                #            displayCols+=1
+                #            break
+                stdscr.refresh()
+                time.sleep(.1)
+                
+
+            # read line without blocking
+        #    try:  line = q.get_nowait() # or q.get(timeout=.1)
+            #try:  line = q.get(timeout=.1)
+        #    except Empty:
+        #        pass
+                #print('.', end='')
+        #    else: # got line
+        #        # ... do something with line
+            loopCounter += 1
 
 wrapper(cursesMain)
 
