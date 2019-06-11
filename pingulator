@@ -10,6 +10,7 @@ from threading  import Thread
 import curses
 from curses import wrapper
 import socket
+import fnmatch
 
 warnings.filterwarnings('ignore')
 ME = os.path.basename(sys.argv[0])
@@ -30,6 +31,9 @@ parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of retur
 parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
 parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100 (fping)", action="store", type=int, default=100)
 parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
+parser.add_argument("-H", "--hosts",    help="Specify hosts file for --wild matching, default=/etc/hosts", action="store", type=str, default="/etc/hosts")
+parser.add_argument("-F", "--hostsfield",    help="Specify hosts file field column for --wild matching, default=1 (zero indexed)", action="store", type=int, default=1)
+parser.add_argument("-W", "--wild",     help="Derive targets from hosts file by wildcard patterns", action="append", type=str)
 parser.add_argument("fping_args", help="Remainder of arguments passed to fping", nargs='*')
 args = parser.parse_args()
 
@@ -51,6 +55,7 @@ if args.verbose:
     logger.setLevel(logging.INFO)
 if args.debug:
     logger.setLevel(logging.DEBUG)
+
 
 def bomb(chunk):
     logger.error("\n\n\n%s\n\n\n",chunk)
@@ -87,6 +92,19 @@ def cursesMain(stdscr):
         fpingCommand.extend(['-p',str(args.period)])
     if args.fping_args:
         fpingCommand.extend(args.fping_args)
+    if args.wild:
+        with open(args.hosts) as hostsFile:
+            for pattern in args.wild:
+                for hostLine in hostsFile.readlines():
+                    if re.match("^#", hostLine): continue
+                    hFields = hostLine.split()
+                    try:
+                        if fnmatch.fnmatch(hFields[args.hostsfield], pattern):
+                            fpingCommand.extend([hFields[args.hostsfield]])
+                    except IndexError:
+                        pass
+
+
 
     stdscr.addstr(0,0,"Command: {}".format(" ".join(fpingCommand)))
     stdscr.refresh()
