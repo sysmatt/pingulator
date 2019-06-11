@@ -72,13 +72,13 @@ def sort_ip(x):
 def cursesMain(stdscr):
 
     fpingCommand=[]
-    fpingCommand.extend(['fping','--loop'])
+    fpingCommand.extend(['fping','-l'])
     if args.fpingOptions: 
         fpingCommand.extend(args.fpingOptions)
     if args.generate:
-        fpingCommand.extend(['--generate',args.generate])
+        fpingCommand.extend(['-g',args.generate])
     if args.period:
-        fpingCommand.extend(['--period',str(args.period)])
+        fpingCommand.extend(['-p',str(args.period)])
     if args.fping_args:
         fpingCommand.extend(args.fping_args)
 
