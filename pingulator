@@ -111,7 +111,7 @@ def cursesMain(stdscr):
         refreshCtr = 0
 
         while loopCounter != maxLoopCounter:
-            if not p.poll == None: 
+            if not p.poll() == None:
                 raise Exception("fping died, Command was: {}".format(" ".join(fpingCommand)))
             now = time.time()
             #logger.debug("LOOP ctr[{}] max[{}]".format(loopCounter,maxLoopCounter))
@@ -130,7 +130,7 @@ def cursesMain(stdscr):
                     state[host] = "DOWN"
                 elif re.search(':',line):
                     # Normal Line
-                    (host,message) = line.split(':',2)
+                    (host,message) = line.split(':')
                     host=host.strip()
                     message=message.strip()
                     results[host] = message
