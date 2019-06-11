@@ -17,6 +17,7 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format=loggingForm
 logger = logging.getLogger(ME)
 start_time = time.time()
 maxLoopCounter=-1
+pingMissAmberThreshold = 3
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
@@ -28,6 +29,7 @@ parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of retur
 parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
 parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100 (fping)", action="store", type=int, default=100)
 parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
+parser.add_argument("fping_args", help="Remainder of arguments passed to fping", nargs='*')
 args = parser.parse_args()
 
 stdscr = curses.initscr()
@@ -77,6 +79,8 @@ def cursesMain(stdscr):
         fpingCommand.extend(['--generate',args.generate])
     if args.period:
         fpingCommand.extend(['--period',str(args.period)])
+    if args.fping_args:
+        fpingCommand.extend(args.fping_args)
 
     stdscr.addstr(0,0,"Command: {}".format(" ".join(fpingCommand)))
     stdscr.refresh()
@@ -93,6 +97,7 @@ def cursesMain(stdscr):
     lines = []
     results = {}
     lastResults = {}
+    resultsMissCtr = {}
     state = {}
     oddlines = []
     hostLabelLength = 0
@@ -141,16 +146,19 @@ def cursesMain(stdscr):
                 myLineCol = colCtr * colWidth
                 thisResult = results[host]
                 
-                if state[host] == "up":
-                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
-                    if lastResults.get(host,"") == thisResult:
-                        # no update, maybe down
-                        state[host] = "????" # Not sure... its a warning
-                if state[host] == "????":
-                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
-                if state[host] == "DOWN":
-                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError))
                 stdscr.addstr(lctr,myLineCol+hostLabelLength+1,results[host].strip()[0:colWidth-(hostLabelLength+2)])
+                if lastResults.get(host,"") == thisResult:   # Same data as last loop, count as a miss
+                    resultsMissCtr+=1
+                else:
+                    resultsMissCtr=0 # clear
+                if state[host] == "up":
+                    if resultsMissCtr >= pingMissAmberThreshold:
+                        stdscr.addstr(lctr,myLineCol+hostLabelLength+1,"miss {}, {}".format(resultsMissCtr,results[host].strip())[0:colWidth-(hostLabelLength+2)])
+                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
+                    else:
+                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
+                if state[host] == "DOWN":  # hard down
+                    stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError))
                 lastResults[host]=thisResult
                 lctr+=1
                 if lctr >= curses.LINES:
