@@ -19,7 +19,6 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format=loggingForm
 logger = logging.getLogger(ME)
 start_time = time.time()
 maxLoopCounter=-1
-pingMissAmberThreshold = 2
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
@@ -33,6 +32,7 @@ parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fpi
 parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of return ping packet. (fping)", action="append_const", dest='fpingOptions', const='-d')
 parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
 parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100ms (fping)", action="store", type=int, default=100)
+parser.add_argument("-m", "--miss",     help="Number of misses that will cause a host to to to amber state, for large numbers of hosts some ICMP responses will be naturally lost. default=2", action="store", type=int, default=2)
 parser.add_argument("-t", "--timeout",  help="The time in milliseconds that fping waits for a response to its first request, default 200ms, can not be larger then --period (fping)", action="store", type=int, default=100)
 parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
 parser.add_argument("-H", "--hosts",    help="Specify hosts file for --wild matching, default=/etc/hosts", action="store", type=str, default="/etc/hosts")
@@ -192,18 +192,18 @@ def cursesMain(stdscr):
                     
                     stdscr.addstr(lctr,myLineCol+hostLabelLength+1,results[host].strip()[0:colWidth-(hostLabelLength+2)])
                     if lastResults.get(host,"") == thisResult:   # Same data as last loop, count as a miss
-                        resultsMissCtr+=1
+                        resultsMissCtr[host]+=1
                     else:
-                        resultsMissCtr=0 # clear
+                        resultsMissCtr[host]=0 # clear
                     if state[host] == "up":
-                        if resultsMissCtr >= pingMissAmberThreshold:
-                            stdscr.addstr(lctr,myLineCol+hostLabelLength+1,"miss {}, {}".format(resultsMissCtr,results[host].strip())[0:colWidth-(hostLabelLength+2)])
+                        if resultsMissCtr[host] > args.miss:
+                            stdscr.addstr(lctr,myLineCol+hostLabelLength+1,"miss {}, {}".format(resultsMissCtr[host],results[host].strip())[0:colWidth-(hostLabelLength+2)])
                             stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
                         else:
                             stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
                     if state[host] == "DOWN":  # hard down
                         stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError)|optReverseVideo)
-                        resultsMissCtr=0 # clear
+                        resultsMissCtr[host]=0 # clear
                     lastResults[host]=thisResult
                     lctr+=1
                     if lctr >= curses.LINES:
