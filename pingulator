@@ -219,7 +219,6 @@ def cursesMain(stdscr):
                     if args.beeps:
                         curses.beep()
                     if args.flash:
-                        raise Exception("Boo")
                         curses.flash()
                 stdscr.refresh()
                 time.sleep(.1)
