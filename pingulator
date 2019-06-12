@@ -19,7 +19,7 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format=loggingForm
 logger = logging.getLogger(ME)
 start_time = time.time()
 maxLoopCounter=-1
-pingMissAmberThreshold = 3
+pingMissAmberThreshold = 2
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
@@ -27,11 +27,13 @@ parser.add_argument("-v", "--verbose",  help="increase output verbosity", action
 parser.add_argument("-D", "--debug",    help="enable debugging output", action="store_true")
 parser.add_argument("-B", "--beeps",    help="enable terminal beeps on refresh when hard DOWN detected", action="store_true")
 parser.add_argument("-L", "--flash",    help="enable terminal flash on refresh when hard DOWN detected", action="store_true")
+parser.add_argument("-R", "--noreverse",help="disable use of reverse video", action="store_true")
 parser.add_argument("-4", "--ipv4",     help="Limit name resolution to ipv4 (fping)", action="append_const", dest='fpingOptions', const='-4')
 parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fping)", action="append_const", dest='fpingOptions', const='-6')
 parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of return ping packet. (fping)", action="append_const", dest='fpingOptions', const='-d')
 parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
-parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100 (fping)", action="store", type=int, default=100)
+parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100ms (fping)", action="store", type=int, default=100)
+parser.add_argument("-t", "--timeout",  help="The time in milliseconds that fping waits for a response to its first request, default 200ms, can not be larger then --period (fping)", action="store", type=int, default=100)
 parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
 parser.add_argument("-H", "--hosts",    help="Specify hosts file for --wild matching, default=/etc/hosts", action="store", type=str, default="/etc/hosts")
 parser.add_argument("-F", "--hostsfield",    help="Specify hosts file field column for --wild matching, default=1 (zero indexed, whitespace delim)", action="store", type=int, default=1)
@@ -58,6 +60,10 @@ if args.verbose:
 if args.debug:
     logger.setLevel(logging.DEBUG)
 
+if args.noreverse:
+    optReverseVideo=0
+else:
+    optReverseVideo=curses.A_REVERSE
 
 def bomb(chunk):
     logger.error("\n\n\n%s\n\n\n",chunk)
@@ -92,6 +98,8 @@ def cursesMain(stdscr):
         fpingCommand.extend(['-g',args.generate])
     if args.period:
         fpingCommand.extend(['-p',str(args.period)])
+    if args.timeout:
+        fpingCommand.extend(['-t',str(args.timeout)])
     if args.fping_args:
         fpingCommand.extend(args.fping_args)
     if args.wild:
@@ -194,7 +202,7 @@ def cursesMain(stdscr):
                         else:
                             stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
                     if state[host] == "DOWN":  # hard down
-                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError)|curses.A_REVERSE)
+                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError)|optReverseVideo)
                     lastResults[host]=thisResult
                     lctr+=1
                     if lctr >= curses.LINES:
@@ -222,16 +230,6 @@ def cursesMain(stdscr):
                         curses.flash()
                 stdscr.refresh()
                 time.sleep(.1)
-                
-
-            # read line without blocking
-        #    try:  line = q.get_nowait() # or q.get(timeout=.1)
-            #try:  line = q.get(timeout=.1)
-        #    except Empty:
-        #        pass
-                #print('.', end='')
-        #    else: # got line
-        #        # ... do something with line
             loopCounter += 1
 
 wrapper(cursesMain)
