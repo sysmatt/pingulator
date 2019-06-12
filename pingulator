@@ -25,6 +25,8 @@ pingMissAmberThreshold = 3
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
 parser.add_argument("-v", "--verbose",  help="increase output verbosity", action="store_true")
 parser.add_argument("-D", "--debug",    help="enable debugging output", action="store_true")
+parser.add_argument("-B", "--beeps",    help="enable terminal beeps on refresh when hard DOWN detected", action="store_true")
+parser.add_argument("-L", "--flash",    help="enable terminal flash on refresh when hard DOWN detected", action="store_true")
 parser.add_argument("-4", "--ipv4",     help="Limit name resolution to ipv4 (fping)", action="append_const", dest='fpingOptions', const='-4')
 parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fping)", action="append_const", dest='fpingOptions', const='-6')
 parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of return ping packet. (fping)", action="append_const", dest='fpingOptions', const='-d')
@@ -192,7 +194,7 @@ def cursesMain(stdscr):
                         else:
                             stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
                     if state[host] == "DOWN":  # hard down
-                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError))
+                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError)|curses.A_REVERSE)
                     lastResults[host]=thisResult
                     lctr+=1
                     if lctr >= curses.LINES:
@@ -213,6 +215,12 @@ def cursesMain(stdscr):
                 #        if colCtr >= displayCols:
                 #            displayCols+=1
                 #            break
+                if "DOWN" in state.values():
+                    if args.beeps:
+                        curses.beep()
+                    if args.flash:
+                        raise Exception("Boo")
+                        curses.flash()
                 stdscr.refresh()
                 time.sleep(.1)
                 
