@@ -153,7 +153,10 @@ def cursesMain(stdscr):
                 if re.search('ICMP.*nreachable', line):
                     # Special case for unreachable, last word is host spec
                     m = line.split()
-                    host = m[-1]
+                    if "(" in m[-1]:
+                        host = m[-2]   # rdns gave hostname
+                    else:
+                        host = m[-1]
                     results[host] = " ".join(m[0:3]) # line #"ICMP Host Unreachable"
                     state[host] = "DOWN"
                 elif re.search(':',line):
