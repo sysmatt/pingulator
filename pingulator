@@ -203,6 +203,7 @@ def cursesMain(stdscr):
                             stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
                     if state[host] == "DOWN":  # hard down
                         stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError)|optReverseVideo)
+                        resultsMissCtr=0 # clear
                     lastResults[host]=thisResult
                     lctr+=1
                     if lctr >= curses.LINES:
