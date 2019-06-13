@@ -104,13 +104,15 @@ def cursesMain(stdscr):
         fpingCommand.extend(args.fping_args)
     if args.wild:
         with open(args.hosts) as hostsFile:
-            for pattern in args.wild:
-                for hostLine in hostsFile.readlines():
-                    if re.match("^#", hostLine): continue
-                    hFields = hostLine.split()
+            for hostLine in hostsFile.readlines():
+                if re.match("^#", hostLine): 
+                    continue # skip comments
+                hFields = hostLine.split()
+                for pattern in args.wild:
                     try:
                         if fnmatch.fnmatch(hFields[args.hostsfield], pattern):
-                            fpingCommand.extend([hFields[args.hostsfield]])
+                            if not hFields[args.hostsfield] in fpingCommand:
+                                fpingCommand.extend([hFields[args.hostsfield]])
                     except IndexError:
                         pass
 
