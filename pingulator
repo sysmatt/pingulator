@@ -168,6 +168,7 @@ def cursesMain(stdscr):
                     message=message.strip()
                     results[host] = message
                     state[host] = "up"
+                    resultsMissCtr[host]=0 # clear
                 #else:
                 #    oddlines.append(line)
 
