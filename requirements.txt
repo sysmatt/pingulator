@@ -1,0 +1,7 @@
+# pingulator has no third-party Python dependencies — all imports are stdlib.
+# Requires Python >= 3.8
+#
+# System dependency: fping must be installed and in PATH.
+#   Ubuntu/Debian:  apt install fping
+#   macOS:          brew install fping
+#   RHEL/Fedora:    dnf install fping

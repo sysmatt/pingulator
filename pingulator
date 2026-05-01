@@ -1,235 +1,192 @@
 #!/usr/bin/env python3
 
-
-import os, sys, logging, time, pprint, warnings, argparse, re, configparser, shutil, imaplib, email, email.header, email.utils, string, subprocess, uuid
-import pprint
-import select
+import os, sys, logging, time, argparse, re, select, ipaddress
 import datetime
 from subprocess import PIPE, Popen
-from threading  import Thread
 import curses
 from curses import wrapper
-import socket
 import fnmatch
 
-warnings.filterwarnings('ignore')
 ME = os.path.basename(sys.argv[0])
-loggingFormat='%(asctime)s %(filename)s: %(message)s'
+loggingFormat = '%(asctime)s %(filename)s: %(message)s'
 logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format=loggingFormat)
 logger = logging.getLogger(ME)
 start_time = time.time()
-maxLoopCounter=-1
 
 
-parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter) #, epilog=configFileHelp)
-parser.add_argument("-v", "--verbose",  help="increase output verbosity", action="store_true")
-parser.add_argument("-D", "--debug",    help="enable debugging output", action="store_true")
-parser.add_argument("-B", "--beeps",    help="enable terminal beeps on refresh when hard DOWN detected", action="store_true")
-parser.add_argument("-L", "--flash",    help="enable terminal flash on refresh when hard DOWN detected", action="store_true")
-parser.add_argument("-R", "--noreverse",help="disable use of reverse video", action="store_true")
-parser.add_argument("-4", "--ipv4",     help="Limit name resolution to ipv4 (fping)", action="append_const", dest='fpingOptions', const='-4')
-parser.add_argument("-6", "--ipv6",     help="Limit name resolution to ipv6 (fping)", action="append_const", dest='fpingOptions', const='-6')
-parser.add_argument("-d", "--rdns",     help="Use DNS to lookup address of return ping packet. (fping)", action="append_const", dest='fpingOptions', const='-d')
-parser.add_argument("-g", "--generate", help="Generate target list using supplied mask or pattern (fping)", action="store", type=str)
-parser.add_argument("-p", "--period",   help="The time in milliseconds that fping waits between successive packets, default 100ms (fping)", action="store", type=int, default=100)
-parser.add_argument("-m", "--miss",     help="Number of misses that will cause a host to to to amber state, for large numbers of hosts some ICMP responses will be naturally lost. default=2", action="store", type=int, default=2)
-parser.add_argument("-t", "--timeout",  help="The time in milliseconds that fping waits for a response to its first request, default 200ms, can not be larger then --period (fping)", action="store", type=int, default=100)
-parser.add_argument("-r", "--refresh",  help="Time between screen refresh, Accepts whole decimal seconds", action="store", type=int, default=1)
-parser.add_argument("-H", "--hosts",    help="Specify hosts file for --wild matching, default=/etc/hosts", action="store", type=str, default="/etc/hosts")
-parser.add_argument("-F", "--hostsfield",    help="Specify hosts file field column for --wild matching, default=1 (zero indexed, whitespace delim)", action="store", type=int, default=1)
-parser.add_argument("-W", "--wild",     help="Derive targets from hosts file by wildcard patterns", action="append", type=str)
-parser.add_argument("fping_args", help="Remainder of arguments passed to fping", nargs='*')
+parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument("-v", "--verbose",    help="increase output verbosity", action="store_true")
+parser.add_argument("-D", "--debug",      help="enable debugging output", action="store_true")
+parser.add_argument("-B", "--beeps",      help="enable terminal beeps on refresh when hard DOWN detected", action="store_true")
+parser.add_argument("-L", "--flash",      help="enable terminal flash on refresh when hard DOWN detected", action="store_true")
+parser.add_argument("-R", "--noreverse",  help="disable use of reverse video", action="store_true")
+parser.add_argument("-4", "--ipv4",       help="limit name resolution to ipv4 (fping)", action="append_const", dest='fpingOptions', const='-4')
+parser.add_argument("-6", "--ipv6",       help="limit name resolution to ipv6 (fping)", action="append_const", dest='fpingOptions', const='-6')
+parser.add_argument("-d", "--rdns",       help="use DNS to lookup address of return ping packet (fping)", action="append_const", dest='fpingOptions', const='-d')
+parser.add_argument("-g", "--generate",   help="generate target list using supplied mask or pattern (fping)", action="store", type=str)
+parser.add_argument("-p", "--period",     help="time in ms fping waits between successive packets, default=100 (fping)", action="store", type=int, default=100)
+parser.add_argument("-m", "--miss",       help="misses before amber state; some ICMP loss is natural on large host sets, default=2", action="store", type=int, default=2)
+parser.add_argument("-t", "--timeout",    help="time in ms fping waits for first response, default=100, cannot exceed --period (fping)", action="store", type=int, default=100)
+parser.add_argument("-r", "--refresh",    help="screen refresh interval in whole seconds, default=1", action="store", type=int, default=1)
+parser.add_argument("-H", "--hosts",      help="hosts file for --wild matching, default=/etc/hosts", action="store", type=str, default="/etc/hosts")
+parser.add_argument("-F", "--hostsfield", help="hosts file field column for --wild matching, default=1 (zero-indexed, whitespace-delimited)", action="store", type=int, default=1)
+parser.add_argument("-W", "--wild",       help="derive targets from hosts file by wildcard pattern", action="append", type=str)
+parser.add_argument("fping_args", help="remaining arguments passed directly to fping", nargs='*')
 args = parser.parse_args()
-
-stdscr = curses.initscr()
-curses.start_color()
-colorPairWarning = 1
-colorPairError = 2
-colorPairOk = 3
-colorPairRefresh = [4,5]
-curses.init_pair(colorPairWarning, curses.COLOR_YELLOW,     curses.COLOR_BLACK)  # Amber warning
-curses.init_pair(colorPairError,   curses.COLOR_RED,        curses.COLOR_BLACK)  # Red is bad
-curses.init_pair(colorPairOk,      curses.COLOR_GREEN,      curses.COLOR_BLACK)  # Green is good
-curses.init_pair(colorPairRefresh[0], curses.COLOR_BLUE,    curses.COLOR_WHITE)  
-#curses.init_pair(colorPairRefresh[1], curses.COLOR_YELLOW,  curses.COLOR_GREEN)  
-curses.init_pair(colorPairRefresh[1], curses.COLOR_WHITE,   curses.COLOR_BLUE)  
-#curses.init_pair(colorPairRefresh[3], curses.COLOR_GREEN,   curses.COLOR_YELLOW)  
 
 if args.verbose:
     logger.setLevel(logging.INFO)
 if args.debug:
     logger.setLevel(logging.DEBUG)
 
-if args.noreverse:
-    optReverseVideo=0
-else:
-    optReverseVideo=curses.A_REVERSE
 
-def bomb(chunk):
-    logger.error("\n\n\n%s\n\n\n",chunk)
+def bomb(chunk: str) -> None:
+    curses.endwin()
+    logger.error("\n\n\n%s\n\n\n", chunk)
     sys.exit(1)
 
 
-def enqueue_output(out, queue):
-    for line in iter(out.readline, b''):
-        queue.put(line)
-        out.close()
-
-def split_ip(ip):
-    """Split a IP address given as string into a 4-tuple of integers."""
-    return tuple(int(part) for part in ip.split('.'))
-
-def sort_ip(x):
-    if re.match("^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$",x):
-        # Im and IP
-        out=[]
-        for o in x.split('.'):
-            out.append("{:03d}".format(int(o)))
-        return(".".join(out))
-    else:
+def sort_ip(x: str) -> str:
+    try:
+        return f"{int(ipaddress.ip_address(x)):039d}"
+    except ValueError:
         return x
-def cursesMain(stdscr):
 
-    fpingCommand=[]
-    fpingCommand.extend(['fping','-l'])
-    if args.fpingOptions: 
+
+def cursesMain(stdscr: curses.window) -> None:
+    curses.start_color()
+    colorPairWarning = 1
+    colorPairError = 2
+    colorPairOk = 3
+    colorPairRefresh = [4, 5]
+    curses.init_pair(colorPairWarning,    curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(colorPairError,      curses.COLOR_RED,    curses.COLOR_BLACK)
+    curses.init_pair(colorPairOk,         curses.COLOR_GREEN,  curses.COLOR_BLACK)
+    curses.init_pair(colorPairRefresh[0], curses.COLOR_BLUE,   curses.COLOR_WHITE)
+    curses.init_pair(colorPairRefresh[1], curses.COLOR_WHITE,  curses.COLOR_BLUE)
+
+    optReverseVideo = 0 if args.noreverse else curses.A_REVERSE
+    stdscr.nodelay(True)
+
+    fpingCommand = ['fping', '-l']
+    if args.fpingOptions:
         fpingCommand.extend(args.fpingOptions)
     if args.generate:
-        fpingCommand.extend(['-g',args.generate])
+        fpingCommand.extend(['-g', args.generate])
     if args.period:
-        fpingCommand.extend(['-p',str(args.period)])
+        fpingCommand.extend(['-p', str(args.period)])
     if args.timeout:
-        fpingCommand.extend(['-t',str(args.timeout)])
+        fpingCommand.extend(['-t', str(args.timeout)])
     if args.fping_args:
         fpingCommand.extend(args.fping_args)
     if args.wild:
         with open(args.hosts) as hostsFile:
-            for hostLine in hostsFile.readlines():
-                if re.match("^#", hostLine): 
-                    continue # skip comments
+            for hostLine in hostsFile:
+                if hostLine.startswith('#'):
+                    continue
                 hFields = hostLine.split()
                 for pattern in args.wild:
                     try:
                         if fnmatch.fnmatch(hFields[args.hostsfield], pattern):
-                            if not hFields[args.hostsfield] in fpingCommand:
-                                fpingCommand.extend([hFields[args.hostsfield]])
+                            if hFields[args.hostsfield] not in fpingCommand:
+                                fpingCommand.append(hFields[args.hostsfield])
                     except IndexError:
                         pass
 
-
-
-    stdscr.addstr(0,0,"Command: {}".format(" ".join(fpingCommand)))
+    stdscr.addstr(0, 0, "Command: {}".format(" ".join(fpingCommand)))
     stdscr.refresh()
     time.sleep(1)
-    with Popen(fpingCommand,stdout=PIPE, stderr=PIPE) as p:
-        selStdout = select.poll()
-        selStderr = select.poll()
-        selStdout.register(p.stdout,select.POLLIN)
-        selStderr.register(p.stderr,select.POLLIN)
 
-        # ... do other things here
-        loopCounter = 0
+    with Popen(fpingCommand, stdout=PIPE, stderr=PIPE) as p:
+        sel = select.poll()
+        sel.register(p.stdout, select.POLLIN)
+        sel.register(p.stderr, select.POLLIN)
+
         lines = []
         results = {}
         lastResults = {}
         resultsMissCtr = {}
         state = {}
-        oddlines = []
         hostLabelLength = 0
         lastRefresh = time.time()
         displayCols = 1
         refreshCtr = 0
 
-        while loopCounter != maxLoopCounter:
-            if not p.poll() == None:
+        while True:
+            if p.poll() is not None:
                 raise Exception("fping died, Command was: {}".format(" ".join(fpingCommand)))
+
+            key = stdscr.getch()
+            if key in (ord('q'), ord('Q'), 27):  # q, Q, or ESC
+                return
+
             now = time.time()
-            #logger.debug("LOOP ctr[{}] max[{}]".format(loopCounter,maxLoopCounter))
-            if selStdout.poll(1):
-                lines.extend(p.stdout.readline().decode().splitlines())
-            elif selStderr.poll(1):
-                lines.extend(p.stderr.readline().decode().splitlines())
+
+            for fd, _ in sel.poll(1):
+                stream = p.stdout if fd == p.stdout.fileno() else p.stderr
+                lines.extend(stream.readline().decode().splitlines())
 
             for line in lines:
-                #print("line[{}]".format(line))
-                if re.search('ICMP.*nreachable', line):
-                    # Special case for unreachable, last word is host spec
+                if (re.search('ICMP.*nreachable', line) or re.search('timed out', line)):
+                    # last word is host spec; paren means --rdns gave hostname before IP
                     m = line.split()
-                    if "(" in m[-1]:   # If IP has paren() it should have hostname before it, ala --rdns
-                        host = m[-2]   # rdns gave hostname
-                    else:
-                        host = m[-1]
-                    results[host] = " ".join(m[0:3]) # line #"ICMP Host Unreachable"
+                    host = m[-2] if "(" in m[-1] else m[-1]
+                    results[host] = " ".join(m[0:3])
                     state[host] = "DOWN"
-                elif re.search(':',line):
-                    # Normal Line
-                    (host,message) = line.split(':')
-                    host=host.strip()
-                    message=message.strip()
+                elif ':' in line:
+                    host, message = line.split(':', 1)
+                    host = host.strip()
+                    message = message.strip()
                     results[host] = message
                     state[host] = "up"
-                    resultsMissCtr[host]=0 # clear
-                #else:
-                #    oddlines.append(line)
+                    resultsMissCtr[host] = 0
 
-            if ( time.time() - lastRefresh ) > args.refresh:
+            if (time.time() - lastRefresh) > args.refresh:
                 lastRefresh = time.time()
-                # display stuff
-                if results.keys():
-                    hostLabelLength = len(max(results.keys(),key=len))
+                if results:
+                    hostLabelLength = len(max(results.keys(), key=len))
                 stdscr.clear()
                 lines.clear()
-                refreshCtr+=1
+                refreshCtr += 1
                 lctr = 0
                 colCtr = 0
-                colWidth = int(curses.COLS / displayCols)  # Column width
-                # running indicator
-                stdscr.addstr(0,0,"Run: ")
-                stdscr.addstr(0,5,"{}".format(str(datetime.timedelta(seconds=int(now - start_time)))), 
-                        curses.color_pair(colorPairRefresh[refreshCtr % len(colorPairRefresh)]))
-                stdscr.addstr(0,15,"Ref: ")
-                stdscr.addstr(0,20,"{:03d}".format(refreshCtr),
-                        curses.color_pair(colorPairRefresh[(refreshCtr+1) % len(colorPairRefresh)]))
-                lctr+=1
+                colWidth = int(curses.COLS / displayCols)
 
-                for host in sorted(results.keys(),key=sort_ip):
+                stdscr.addstr(0, 0, "Run: ")
+                stdscr.addstr(0, 5, "{}".format(str(datetime.timedelta(seconds=int(now - start_time)))),
+                        curses.color_pair(colorPairRefresh[refreshCtr % len(colorPairRefresh)]))
+                stdscr.addstr(0, 15, "Ref: ")
+                stdscr.addstr(0, 20, "{:03d}".format(refreshCtr),
+                        curses.color_pair(colorPairRefresh[(refreshCtr + 1) % len(colorPairRefresh)]))
+                lctr += 1
+
+                for host in sorted(results.keys(), key=sort_ip):
                     myLineCol = colCtr * colWidth
                     thisResult = results[host]
-                    
-                    stdscr.addstr(lctr,myLineCol+hostLabelLength+1,results[host].strip()[0:colWidth-(hostLabelLength+2)])
-                    if lastResults.get(host,"") == thisResult:   # Same data as last loop, count as a miss
-                        resultsMissCtr[host]+=1
+
+                    stdscr.addstr(lctr, myLineCol + hostLabelLength + 1, results[host].strip()[0:colWidth - (hostLabelLength + 2)])
+                    if lastResults.get(host, "") == thisResult:
+                        resultsMissCtr[host] += 1
                     else:
-                        resultsMissCtr[host]=0 # clear
+                        resultsMissCtr[host] = 0
                     if state[host] == "up":
                         if resultsMissCtr[host] > args.miss:
-                            stdscr.addstr(lctr,myLineCol+hostLabelLength+1,"miss {}, {}".format(resultsMissCtr[host],results[host].strip())[0:colWidth-(hostLabelLength+2)])
-                            stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairWarning))
+                            stdscr.addstr(lctr, myLineCol + hostLabelLength + 1, "miss {}, {}".format(resultsMissCtr[host], results[host].strip())[0:colWidth - (hostLabelLength + 2)])
+                            stdscr.addstr(lctr, myLineCol, "{:>{}}".format(host, hostLabelLength), curses.color_pair(colorPairWarning))
                         else:
-                            stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairOk))
-                    if state[host] == "DOWN":  # hard down
-                        stdscr.addstr(lctr,myLineCol,"{:>{}}".format(host,hostLabelLength),curses.color_pair(colorPairError)|optReverseVideo)
-                        resultsMissCtr[host]=0 # clear
-                    lastResults[host]=thisResult
-                    lctr+=1
+                            stdscr.addstr(lctr, myLineCol, "{:>{}}".format(host, hostLabelLength), curses.color_pair(colorPairOk))
+                    if state[host] == "DOWN":
+                        stdscr.addstr(lctr, myLineCol, "{:>{}}".format(host, hostLabelLength), curses.color_pair(colorPairError) | optReverseVideo)
+                        resultsMissCtr[host] = 0
+                    lastResults[host] = thisResult
+                    lctr += 1
                     if lctr >= curses.LINES:
-                        colCtr+=1
-                        lctr=0
+                        colCtr += 1
+                        lctr = 0
                         if colCtr >= displayCols:
-                            displayCols+=1
+                            displayCols += 1
                             break
-                    #db(stdscr,"lctr[{}] colCtr[{}] myLineCol[{}] colWidth[{}] {}x{}".format(lctr, colCtr, myLineCol, colWidth, curses.LINES, curses.COLS))
-                        
-                #for odd in sorted(oddlines):
-                #    print("odd:\t{}".format(odd))
-                #    stdscr.addstr(lctr,myLineCol,"odd: "+odd)
-                #    lctr+=1
-                #    if lctr >= curses.LINES:
-                #        colCtr+=1
-                #        lctr=1
-                #        if colCtr >= displayCols:
-                #            displayCols+=1
-                #            break
+
                 if "DOWN" in state.values():
                     if args.beeps:
                         curses.beep()
@@ -237,8 +194,6 @@ def cursesMain(stdscr):
                         curses.flash()
                 stdscr.refresh()
                 time.sleep(.1)
-            loopCounter += 1
+
 
 wrapper(cursesMain)
-
-
